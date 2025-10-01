@@ -1,0 +1,360 @@
+---
+title: "tidy tree practice"
+format: html
+---
+> next week: make github account -- send username
+>look into rpart.plot() for plotting trees and xgb.plot.tree() and extract_fit_engine()
+>challenge : keep trying to make things tidy
+
+```{r}
+#install.packages("tidyverse")
+#install.packages("parsnip")
+```
+
+
+```{r}
+#| label: setup 
+#| include: false
+
+library(tidyverse)
+library(parsnip)
+library(tree)
+library(ISLR2)
+attach(Carseats)
+library(rpart.plot)
+```
+
+
+```{r}
+#| label: add-high
+#create the high variable and drop the sales variable - we want to do classification tree
+carseats_updated <- Carseats |> 
+  mutate(High = factor(ifelse(Sales <= 8, "No", "Yes"))) |> 
+  select(-Sales)
+```
+
+
+```{r}
+#| label: set-parameters-classification-model
+#we are setting the parameters for the classification model
+#min_n means minimum number of data points we are splitting at
+#mtry is the number of predictors or features that are randomly sampled
+
+rf_reg_spec <- 
+  rand_forest(trees = 1, min_n = 10, mtry = 10) |> #change # of trees for random forest
+  set_mode("classification") |> 
+  set_engine("randomForest")
+rf_reg_spec
+```
+```{r}
+
+```
+
+
+
+```{r}
+#| label: running-model
+
+set.seed(2)
+rf_reg_fit <- rf_reg_spec |> 
+  fit(High ~ ., data = carseats_updated)
+rf_reg_fit
+```
+```{r}
+#| label: tree plot function using igraph package
+
+library(randomForest)
+library(igraph)
+library(ggraph)
+
+tree_func <- function(final_model, 
+                      tree_num) {
+
+#get the tree
+tree <- getTree(rf_reg_fit$fit, k = 1, labelVar = TRUE) |>
+  tibble::rownames_to_column() |>
+  mutate(`split point` = ifelse(is.na(prediction), `split point`, NA)) 
+
+#preparing data
+graph_frame <- data.frame(from = rep(tree$rowname, 2), 
+                          to = c(tree$`left daughter`, tree$`right daughter`))
+
+#convert to graph and delete last node
+graph <- graph_from_data_frame(graph_frame) |> delete_vertices("0")
+
+#set node labels
+V(graph)$node_label <- gsub("_", " ", as.character(tree$`split var`))
+V(graph)$leaf_label <- as.character(tree$prediction)
+V(graph)$split <- as.character(round(tree$`split point`, digits = 2))
+
+#plot
+plot <- ggraph(graph, 'dendrogram') + 
+    theme_bw() +
+    geom_edge_link() +
+    geom_node_point() +
+    geom_node_text(aes(label = node_label), na.rm = TRUE, repel = TRUE) +
+    geom_node_label(aes(label = split), vjust = 2.5, na.rm = TRUE, fill = "white") +
+    geom_node_label(aes(label = leaf_label, fill = leaf_label), na.rm = TRUE, 
+					repel = TRUE, colour = "white", fontface = "bold", show.legend = FALSE) +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.background = element_blank(),
+          plot.background = element_rect(fill = "white"),
+          panel.border = element_blank(),
+          axis.line = element_blank(),
+          axis.text.x = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks = element_blank(),
+          axis.title.x = element_blank(),
+          axis.title.y = element_blank(),
+          plot.title = element_text(size = 18))
+  
+  print(plot) 
+}
+```
+
+
+```{r}
+#| label: using the tree function
+
+tree_func(rf_reg_fit, 1) #number indicates which tree to use by index
+```
+
+
+```{r}
+```
+
+
+```{r}
+#plot(rf_reg_fit)
+#text(rf_reg_fit, pretty = 0)
+```
+
+
+```{r}
+#| label: create-training-testing
+
+set.seed(2)
+train <- sample(1:nrow(Carseats), 200)
+
+training <- carseats_updated |> 
+  slice(train)
+
+testing <- carseats_updated |> 
+  slice(-train)
+```
+
+```{r}
+#| label: fit-training-data
+
+set.seed(2)
+rf_train_fit <- rf_reg_spec |> 
+  fit(High ~ ., data = training)
+rf_train_fit
+
+```
+```{r}
+tree_func(rf_train_fit, 1) #the number is which tree to plot 
+```
+
+
+```{r}
+name <- predict(rf_train_fit, testing, type = "class") 
+
+#add predict as its own variable
+
+testing |> mutate(predict_high = name$.pred_class) |> tabyl(High, predict_high) # creates yes/no confuction matrix for predictions
+```
+
+
+```{r}
+
+
+
+```
+
+>left off here 
+
+```{r}
+carseats.test <- Carseats[-train,]
+high.test <- High[-train]
+tree.carseats <- tree(High ~ . -Sales, Carseats, subset = train)
+tree.pred <- predict(tree.carseats, carseats.test, type = "class")
+table(tree.pred, high.test)
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+set.seed(7)
+cv.carseats <- cv.tree(tree.carseats, FUN = prune.misclass)
+names(cv.carseats)
+
+par(mfrow = c(1, 2))
+plot(cv.carseats$size, cv.carseats$dev, type = "b") #dev is the number of cross valisation 
+plot(cv.carseats$k, cv.carseats$dev, type = "b")
+```
+
+
+```{r}
+prune.carseats <- prune.misclass(tree.carseats, best = 9)
+plot(prune.carseats)
+text(prune.carseats, pretty = 0)
+
+tree.pred <- predict(prune.carseats, carseats.test, type = "class")
+table(tree.pred, high.test)
+```
+
+
+```{r}
+prune.carseats <- prune.misclass(tree.carseats, best = 14)
+plot(prune.carseats)
+text(prune.carseats, pretty = 0)
+tree.pred <- predict(prune.carseats, carseats.test, type = "class")
+table(tree.pred, high.test)
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+set.seed(1)
+train <- sample(1:nrow(Boston), nrow(Boston) / 2) #training set
+tree.boston <- tree(medv ~., Boston, subset = train)  #fitting tree
+summary(tree.boston)
+
+plot(tree.boston)
+text(tree.boston, pretty = 0)
+```
+
+
+```{r}
+```
+
+
+```{r}
+cv.boston <- cv.tree(tree.boston) #function that determine pruning the tree improves performance
+plot(cv.boston$size, cv.boston$dev, type = "b")
+```
+
+
+```{r}
+```
+
+
+```{r}
+prune.boston <- prune.tree(tree.boston, best = 5) #pruning tree
+plot(prune.boston) 
+text(prune.boston, pretty = 0)
+```
+
+
+```{r}
+yhat <- predict(tree.boston, newdata = Boston[-train, ]) #use unpruned tree to make predictions
+boston.test <- Boston[-train, "medv"] #boston test set
+plot(yhat, boston.test)
+abline(0, 1)
+mean((yhat - boston.test) ^ 2)
+```
+
+
+```{r}
+```
+
+
+```{r}
+library(randomForest)
+set.seed(1)
+bag.boston <- randomForest(medv ~., data = Boston, subset = train, mtry = 12, importance = TRUE) #bagging (where m = p), mtry = 12 says all 12 predictors should be considered
+bag.boston
+```
+
+
+```{r}
+yhat.bag <- predict(bag.boston, newdata = Boston[-train, ])
+plot(yhat.bag, boston.test)
+abline(0, 1)
+mean((yhat.bag - boston.test) ^ 2)
+```
+
+
+```{r}
+bag.boston <- randomForest(medv ~ . , data = Boston, 
+                           subset = train, 
+                           mtry = 12, 
+                           ntree = 25)
+yhat.bag <- predict(bag.boston, newdata = Boston[-train, ])
+mean((yhat.bag - boston.test) ^ 2)
+```
+
+
+```{r}
+set.seed(1)
+rf.boston <- randomForest(medv ~., data = Boston, 
+                          subset = train, 
+                          mtry = 6, 
+                          importance = TRUE)
+yhat.rf <- predict(rf.boston, newdata = Boston[-train, ])
+mean((yhat.rf - boston.test) ^ 2)
+
+importance(rf.boston) #view importance of each variable
+varImpPlot(rf.boston) #plots of importance measures
+```
+
+
+```{r}
+#install.packages("gbm")
+library(gbm)
+set.seed(1)
+boost.boston <- gbm(medv ~., data = Boston[train, ], 
+                    distribution = "gaussian", n.trees = 5000, 
+                    interaction.depth = 4) #fit boosted regression trees
+summary(boost.boston)
+
+plot(boost.boston, i = "rm")
+plot(boost.boston, i = "lstat")
+
+yhat.boost <- predict(boost.boston, newdata = Boston[-train, ], 
+                      n.trees = 5000)
+mean((yhat.boost - boston.test) ^ 2) #test MSE
+
+boost.boston <- gbm(medv ~., data = Boston[-train, ], 
+                    distribution = "gaussian", n.trees = 5000, 
+                    interaction.depth = 4, shrinkage = 0.2, verbose = F)
+yhat.boost <- predict(boost.boston, newdata = Boston[-train, ], n.trees = 5000)
+```
+
+
+```{r}
+library(BART)
+
+x <- Boston[, 1:12]
+y <- Boston[, "medv"]
+xtrain <- x[train, ]
+ytrain <- y[train]
+
+xtest <- x[-train, ]
+ytest <- y[-train]
+set.seed(1)
+barfit <- gbart(xtrain, ytrain, x.test = xtest) #fit bayesian additive regression tree model
+
+yhat.bart <- barfit$yhat.test.mean
+mean((ytest - yhat.bart) ^ 2) #test error
+
+ord <- order(barfit$varcount.mean, decreasing = T)
+barfit$varcount.mean[ord]
+```
+
